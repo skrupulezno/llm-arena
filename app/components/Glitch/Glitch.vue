@@ -9,7 +9,6 @@
         </div>
     </div>
 </template>
-
 <script setup>
 import {
     ref,
@@ -19,7 +18,6 @@ import {
     nextTick,
     computed,
 } from "vue";
-
 const props = defineProps({
     glitchColors: {
         type: Array,
@@ -47,7 +45,7 @@ const props = defineProps({
     },
     characters: {
         type: String,
-        default: "      ПУпупупу",
+        default: "      lmMLArena",
     },
     fishEye: {
         type: Boolean,
@@ -57,8 +55,11 @@ const props = defineProps({
         type: Boolean,
         default: true,
     },
+    fishEyeStrength: {
+        type: Number,
+        default: 0.3,
+    },
 });
-
 const canvasRef = ref(null);
 const textCanvasRef = ref(null);
 const animationRef = ref(null);
@@ -74,18 +75,18 @@ const texLocation = ref(null);
 const distortionLocation = ref(null);
 const logicalDimensions = ref({ width: 0, height: 0 });
 const lastGlitchTime = ref(Date.now());
-const lettersAndSymbols = Array.from(props.characters);
+const lettersAndSymbols = ref(Array.from(props.characters));
 const fontSize = 12;
-const charWidth = 8;
 const charHeight = 14;
-
+let charWidth = ref(8); // Будет вычислено динамически
+const padding = 20; // Логических пикселей отступа со всех сторон, чтобы избежать дисторшена на краях
 const vertexShaderSource = `
     attribute vec2 position;
     varying vec2 vTexCoord;
     void main() {
         gl_Position = vec4(position, 0.0, 1.0);
         vec2 texCoord = (position + 1.0) / 2.0;
-        vTexCoord = vec2(texCoord.x, 1.0 - texCoord.y);  // Flip y (v) coordinate
+        vTexCoord = vec2(texCoord.x, 1.0 - texCoord.y); // Flip y (v) coordinate
     }
 `;
 const fragmentShaderSource = `
@@ -109,19 +110,28 @@ const fragmentShaderSource = `
         gl_FragColor = texture2D(uTexture, distorted_uv);
     }
 `;
-
+const computeCharMetrics = () => {
+    if (!textContext.value) return;
+    const ctx = textContext.value;
+    ctx.font = `${fontSize}px monospace`;
+    ctx.textBaseline = "top";
+    let maxWidth = 0;
+    lettersAndSymbols.value.forEach((char) => {
+        const metrics = ctx.measureText(char);
+        maxWidth = Math.max(maxWidth, metrics.width);
+    });
+    charWidth.value = Math.ceil(maxWidth) + 1; // +1 для отступа, чтобы избежать наложений
+};
 const getRandomChar = () => {
-    return lettersAndSymbols[
-        Math.floor(Math.random() * lettersAndSymbols.length)
+    return lettersAndSymbols.value[
+        Math.floor(Math.random() * lettersAndSymbols.value.length)
     ];
 };
-
 const getRandomColor = () => {
     return props.glitchColors[
         Math.floor(Math.random() * props.glitchColors.length)
     ];
 };
-
 const parseColor = (colorStr) => {
     if (colorStr.startsWith("rgb(")) {
         const matches = colorStr.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
@@ -149,7 +159,6 @@ const parseColor = (colorStr) => {
     }
     return null;
 };
-
 const interpolateColor = (start, end, factor) => {
     const result = {
         r: Math.round(start.r + (end.r - start.r) * factor),
@@ -158,13 +167,14 @@ const interpolateColor = (start, end, factor) => {
     };
     return `rgb(${result.r}, ${result.g}, ${result.b})`;
 };
-
 const calculateGrid = (width, height) => {
-    const columns = Math.ceil(width / charWidth);
-    const rows = Math.ceil(height / charHeight);
+    // Учитываем отступы, чтобы символы не попадали на края
+    const innerWidth = Math.max(0, width - 2 * padding);
+    const innerHeight = Math.max(0, height - 2 * padding);
+    const columns = Math.floor(innerWidth / charWidth.value);
+    const rows = Math.floor(innerHeight / charHeight);
     return { columns, rows };
 };
-
 const initializeLetters = (columns, rows) => {
     grid.value = { columns, rows };
     const totalLetters = columns * rows;
@@ -177,7 +187,6 @@ const initializeLetters = (columns, rows) => {
         colorProgress: 1,
     }));
 };
-
 const resizeCanvas = async () => {
     const canvas = canvasRef.value;
     if (!canvas) return;
@@ -210,22 +219,24 @@ const resizeCanvas = async () => {
     initializeLetters(columns, rows);
     drawLetters();
 };
-
 const drawLetters = () => {
     if (!textContext.value || letters.value.length === 0) return;
     const ctx = textContext.value;
     const { width, height } = logicalDimensions.value;
-    ctx.clearRect(0, 0, width, height);
+    // Заполняем фон чёрным цветом
+    ctx.fillStyle = "#212121";
+    ctx.fillRect(0, 0, width, height);
     ctx.font = `${fontSize}px monospace`;
     ctx.textBaseline = "top";
+    const offsetX = padding;
+    const offsetY = padding;
     letters.value.forEach((letter, index) => {
-        const x = (index % grid.value.columns) * charWidth;
-        const y = Math.floor(index / grid.value.columns) * charHeight;
+        const x = offsetX + (index % grid.value.columns) * charWidth.value;
+        const y = offsetY + Math.floor(index / grid.value.columns) * charHeight;
         ctx.fillStyle = letter.color;
         ctx.fillText(letter.char, x, y);
     });
 };
-
 const updateLetters = () => {
     if (!letters.value || letters.value.length === 0) return;
     const updateCount = Math.max(1, Math.floor(letters.value.length * 0.05));
@@ -250,7 +261,6 @@ const updateLetters = () => {
         }
     }
 };
-
 const handleSmoothTransitions = () => {
     let anyChanged = false;
     letters.value.forEach((letter) => {
@@ -271,7 +281,6 @@ const handleSmoothTransitions = () => {
     }
     return false;
 };
-
 const updateTexture = () => {
     if (!gl.value || !texture.value || !textCanvasRef.value) return;
     const gl_ = gl.value;
@@ -285,7 +294,6 @@ const updateTexture = () => {
         textCanvasRef.value,
     );
 };
-
 const renderWebGL = () => {
     if (!gl.value || !program.value) return;
     const gl_ = gl.value;
@@ -296,12 +304,14 @@ const renderWebGL = () => {
     gl_.uniform1i(texLocation.value, 0);
     gl_.activeTexture(gl_.TEXTURE0);
     gl_.bindTexture(gl_.TEXTURE_2D, texture.value);
-    gl_.uniform1f(distortionLocation.value, props.fishEye ? 0.3 : 0.0);
+    gl_.uniform1f(
+        distortionLocation.value,
+        props.fishEye ? props.fishEyeStrength : 0.0,
+    );
     gl_.clearColor(0, 0, 0, 1);
     gl_.clear(gl_.COLOR_BUFFER_BIT);
     gl_.drawArrays(gl_.TRIANGLES, 0, 6);
 };
-
 const createShader = (gl_, type, source) => {
     const shader = gl_.createShader(type);
     gl_.shaderSource(shader, source);
@@ -313,7 +323,6 @@ const createShader = (gl_, type, source) => {
     }
     return shader;
 };
-
 const initWebGL = () => {
     const gl_ = gl.value;
     if (!gl_) return;
@@ -349,7 +358,6 @@ const initWebGL = () => {
     gl_.texParameteri(gl_.TEXTURE_2D, gl_.TEXTURE_WRAP_S, gl_.CLAMP_TO_EDGE);
     gl_.texParameteri(gl_.TEXTURE_2D, gl_.TEXTURE_WRAP_T, gl_.CLAMP_TO_EDGE);
 };
-
 const animate = () => {
     const now = Date.now();
     let drewThisFrame = false;
@@ -371,7 +379,6 @@ const animate = () => {
     renderWebGL();
     animationRef.value = requestAnimationFrame(animate);
 };
-
 // СТИЛИ
 const containerStyle = computed(() => ({
     position: "relative",
@@ -380,7 +387,6 @@ const containerStyle = computed(() => ({
     overflow: "hidden",
     transition: "border-radius 0.4s ease-out",
 }));
-
 const canvasStyle = computed(() => ({
     display: "block",
     width: "100%",
@@ -388,7 +394,6 @@ const canvasStyle = computed(() => ({
     transformOrigin: "center center",
     transition: "filter 0.4s ease-out",
 }));
-
 const effectLayerStyle = computed(() => ({
     position: "absolute",
     top: 0,
@@ -399,7 +404,6 @@ const effectLayerStyle = computed(() => ({
     opacity: props.crtEffect || props.fishEye ? 1 : 0,
     transition: "opacity 0.3s",
 }));
-
 const outerVignetteStyle = computed(() => ({
     position: "absolute",
     top: 0,
@@ -409,7 +413,6 @@ const outerVignetteStyle = computed(() => ({
     pointerEvents: "none",
     borderRadius: "8px",
 }));
-
 const centerVignetteStyle = computed(() => ({
     position: "absolute",
     top: 0,
@@ -419,7 +422,6 @@ const centerVignetteStyle = computed(() => ({
     pointerEvents: "none",
     borderRadius: "8px",
 }));
-
 // Жизненный цикл
 let resizeTimeout;
 const handleResize = () => {
@@ -429,27 +431,48 @@ const handleResize = () => {
         resizeCanvas().then(animate);
     }, 100);
 };
-
+const updateCharacters = () => {
+    lettersAndSymbols.value = Array.from(props.characters);
+    computeCharMetrics();
+    // Переинициализируем сетку и буквы при изменении символов
+    if (logicalDimensions.value.width > 0) {
+        const { columns, rows } = calculateGrid(
+            logicalDimensions.value.width,
+            logicalDimensions.value.height,
+        );
+        initializeLetters(columns, rows);
+        drawLetters();
+        updateTexture();
+    }
+};
 onMounted(() => {
     if (canvasRef.value) {
         gl.value = canvasRef.value.getContext("webgl");
     }
     if (textCanvasRef.value) {
         textContext.value = textCanvasRef.value.getContext("2d");
+        // Вычисляем метрики после установки контекста
+        nextTick(() => {
+            computeCharMetrics();
+        });
     }
     initWebGL();
     resizeCanvas().then(animate);
     window.addEventListener("resize", handleResize);
 });
-
 onBeforeUnmount(() => {
     if (animationRef.value) cancelAnimationFrame(animationRef.value);
     window.removeEventListener("resize", handleResize);
     clearTimeout(resizeTimeout);
 });
-
 watch(
-    () => [props.glitchSpeed, props.smooth, props.fishEye, props.crtEffect],
+    () => [
+        props.glitchSpeed,
+        props.smooth,
+        props.fishEye,
+        props.crtEffect,
+        props.fishEyeStrength,
+    ],
     () => {
         if (animationRef.value) {
             cancelAnimationFrame(animationRef.value);
@@ -458,8 +481,8 @@ watch(
         }
     },
 );
+watch(() => props.characters, updateCharacters);
 </script>
-
 <script>
 import { onMounted } from "vue";
 onMounted(() => {
@@ -493,7 +516,6 @@ onMounted(() => {
     }
 });
 </script>
-
 <style scoped lang="scss">
 @use "Glitch.module.scss";
 </style>
