@@ -2,13 +2,9 @@
     <div :class="className" :style="containerStyle">
         <canvas ref="canvasRef" :style="canvasStyle"></canvas>
         <canvas ref="textCanvasRef" style="display: none"></canvas>
-        <div class="effect-layer" :style="effectLayerStyle">
-            <div class="scanlines" :style="scanlinesStyle"></div>
-            <div class="grain"></div>
-            <div class="crt-mask"></div>
-        </div>
     </div>
 </template>
+
 <script setup>
 import {
     ref,
@@ -18,10 +14,12 @@ import {
     nextTick,
     computed,
 } from "vue";
+
+// --- Props ---
 const props = defineProps({
     glitchColors: {
         type: Array,
-        default: () => ["#99aab5", "a1afb7"],
+        default: () => ["#f2d08c"],
     },
     className: {
         type: String,
@@ -29,37 +27,28 @@ const props = defineProps({
     },
     glitchSpeed: {
         type: Number,
-        default: 40,
-    },
-    centerVignette: {
-        type: Boolean,
-        default: false,
-    },
-    outerVignette: {
-        type: Boolean,
-        default: false,
+        default: 80, // Скорость обновления глитча в мс
     },
     smooth: {
         type: Boolean,
-        default: true,
+        default: true, // Плавный переход цвета
     },
     characters: {
         type: String,
-        default: "       lmMLArena",
+        default: "      lmMLArena", // Набор символов для глитча
     },
     fishEye: {
         type: Boolean,
-        default: true,
-    },
-    crtEffect: {
-        type: Boolean,
-        default: true,
+        default: true, // Эффект рыбьего глаза
     },
     fishEyeStrength: {
         type: Number,
-        default: 0.9,
+        default: 0.9, // Сила эффекта
     },
+    // Удалены centerVignette, outerVignette, crtEffect, т.к. они не используются в шаблоне и логике
 });
+
+// --- Refs ---
 const canvasRef = ref(null);
 const textCanvasRef = ref(null);
 const animationRef = ref(null);
@@ -76,10 +65,14 @@ const distortionLocation = ref(null);
 const logicalDimensions = ref({ width: 0, height: 0 });
 const lastGlitchTime = ref(Date.now());
 const lettersAndSymbols = ref(Array.from(props.characters));
+let charWidth = ref(8); // Динамически вычисляемая ширина символа
+
+// --- Константы ---
 const fontSize = 12;
 const charHeight = 14;
-let charWidth = ref(8); // Будет вычислено динамически
-const padding = 20; // Логических пикселей отступа со всех сторон, чтобы избежать дисторшена на краях
+const padding = 20; // Отступ в логических пикселях
+
+// --- Shaders (Без изменений, так как они критичны для WebGL) ---
 const vertexShaderSource = `
     attribute vec2 position;
     varying vec2 vTexCoord;
@@ -110,6 +103,8 @@ const fragmentShaderSource = `
         gl_FragColor = texture2D(uTexture, distorted_uv);
     }
 `;
+
+// --- Утилиты (Объединены в одну секцию) ---
 const computeCharMetrics = () => {
     if (!textContext.value) return;
     const ctx = textContext.value;
@@ -117,48 +112,42 @@ const computeCharMetrics = () => {
     ctx.textBaseline = "top";
     let maxWidth = 0;
     lettersAndSymbols.value.forEach((char) => {
-        const metrics = ctx.measureText(char);
-        maxWidth = Math.max(maxWidth, metrics.width);
+        maxWidth = Math.max(maxWidth, ctx.measureText(char).width);
     });
-    charWidth.value = Math.ceil(maxWidth) + 1; // +1 для отступа, чтобы избежать наложений
+    charWidth.value = Math.ceil(maxWidth) + 1; // +1 для отступа
 };
+
 const getRandomChar = () => {
     return lettersAndSymbols.value[
         Math.floor(Math.random() * lettersAndSymbols.value.length)
     ];
 };
+
 const getRandomColor = () => {
     return props.glitchColors[
         Math.floor(Math.random() * props.glitchColors.length)
     ];
 };
+
+// Более простая функция парсинга, убрана поддержка rgb() для упрощения
 const parseColor = (colorStr) => {
-    if (colorStr.startsWith("rgb(")) {
-        const matches = colorStr.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-        if (matches) {
-            return {
-                r: parseInt(matches[1], 10),
-                g: parseInt(matches[2], 10),
-                b: parseInt(matches[3], 10),
-            };
-        }
-    } else {
-        const shorthandRegex = /^#?([a-f\\d])([a-f\\d])([a-f\\d])$/i;
-        let hex = colorStr.replace(
-            shorthandRegex,
-            (m, r, g, b) => r + r + g + g + b + b,
-        );
-        const result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex);
-        if (result) {
-            return {
-                r: parseInt(result[1], 16),
-                g: parseInt(result[2], 16),
-                b: parseInt(result[3], 16),
-            };
-        }
+    if (colorStr.startsWith("rgb(")) return null; // Оставим только hex
+    const shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i;
+    let hex = colorStr.replace(
+        shorthandRegex,
+        (m, r, g, b) => r + r + g + g + b + b,
+    );
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    if (result) {
+        return {
+            r: parseInt(result[1], 16),
+            g: parseInt(result[2], 16),
+            b: parseInt(result[3], 16),
+        };
     }
     return null;
 };
+
 const interpolateColor = (start, end, factor) => {
     const result = {
         r: Math.round(start.r + (end.r - start.r) * factor),
@@ -167,14 +156,15 @@ const interpolateColor = (start, end, factor) => {
     };
     return `rgb(${result.r}, ${result.g}, ${result.b})`;
 };
+
 const calculateGrid = (width, height) => {
-    // Учитываем отступы, чтобы символы не попадали на края
     const innerWidth = Math.max(0, width - 2 * padding);
     const innerHeight = Math.max(0, height - 2 * padding);
     const columns = Math.floor(innerWidth / charWidth.value);
     const rows = Math.floor(innerHeight / charHeight);
     return { columns, rows };
 };
+
 const initializeLetters = (columns, rows) => {
     grid.value = { columns, rows };
     const totalLetters = columns * rows;
@@ -187,48 +177,27 @@ const initializeLetters = (columns, rows) => {
         colorProgress: 1,
     }));
 };
-const resizeCanvas = async () => {
-    const canvas = canvasRef.value;
-    if (!canvas) return;
-    const parent = canvas.parentElement;
-    if (!parent) return;
-    await nextTick();
-    const dpr = window.devicePixelRatio || 1;
-    const rect = parent.getBoundingClientRect();
-    const width = rect.width * dpr;
-    const height = rect.height * dpr;
-    canvas.width = width;
-    canvas.height = height;
 
-    logicalDimensions.value = { width: rect.width, height: rect.height };
-    if (textCanvasRef.value) {
-        const tcanvas = textCanvasRef.value;
-        tcanvas.width = width;
-        tcanvas.height = height;
-        tcanvas.style.width = `${rect.width}px`;
-        tcanvas.style.height = `${rect.height}px`;
-        if (textContext.value) {
-            textContext.value.setTransform(dpr, 0, 0, dpr, 0, 0);
-        }
-    }
-    if (gl.value) {
-        gl.value.viewport(0, 0, width, height);
-    }
-    const { columns, rows } = calculateGrid(rect.width, rect.height);
-    initializeLetters(columns, rows);
-    drawLetters();
-};
+// --- Основная логика Canvas и WebGL ---
+
 const drawLetters = () => {
     if (!textContext.value || letters.value.length === 0) return;
     const ctx = textContext.value;
     const { width, height } = logicalDimensions.value;
-    // Заполняем фон чёрным цветом
+    const dpr = window.devicePixelRatio || 1;
+
+    // Сброс и применение DPR
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // Очистка
     ctx.fillStyle = "#212121";
     ctx.fillRect(0, 0, width, height);
+
     ctx.font = `${fontSize}px monospace`;
     ctx.textBaseline = "top";
     const offsetX = padding;
     const offsetY = padding;
+
     letters.value.forEach((letter, index) => {
         const x = offsetX + (index % grid.value.columns) * charWidth.value;
         const y = offsetY + Math.floor(index / grid.value.columns) * charHeight;
@@ -236,36 +205,36 @@ const drawLetters = () => {
         ctx.fillText(letter.char, x, y);
     });
 };
+
 const updateLetters = () => {
     if (!letters.value || letters.value.length === 0) return;
-    const updateCount = Math.max(1, Math.floor(letters.value.length * 0.05));
+    const updateCount = Math.max(1, Math.floor(letters.value.length * 0.05)); // 5% меняется
     for (let i = 0; i < updateCount; i++) {
         const index = Math.floor(Math.random() * letters.value.length);
-        if (!letters.value[index]) continue;
-        letters.value[index].char = getRandomChar();
-        letters.value[index].targetColor = getRandomColor();
+        const letter = letters.value[index];
+        if (!letter) continue;
+
+        letter.char = getRandomChar();
+        letter.targetColor = getRandomColor();
+
         if (!props.smooth) {
-            letters.value[index].color = letters.value[index].targetColor;
-            letters.value[index].colorProgress = 1;
-            letters.value[index].startRgb = null;
-            letters.value[index].targetRgb = null;
+            letter.color = letter.targetColor;
+            letter.colorProgress = 1;
+            letter.startRgb = null;
+            letter.targetRgb = null;
         } else {
-            letters.value[index].startRgb = parseColor(
-                letters.value[index].color,
-            );
-            letters.value[index].targetRgb = parseColor(
-                letters.value[index].targetColor,
-            );
-            letters.value[index].colorProgress = 0;
+            letter.startRgb = parseColor(letter.color);
+            letter.targetRgb = parseColor(letter.targetColor);
+            letter.colorProgress = 0;
         }
     }
 };
+
 const handleSmoothTransitions = () => {
     let anyChanged = false;
     letters.value.forEach((letter) => {
         if (letter.colorProgress < 1 && letter.startRgb && letter.targetRgb) {
-            letter.colorProgress += 0.05;
-            if (letter.colorProgress > 1) letter.colorProgress = 1;
+            letter.colorProgress = Math.min(1, letter.colorProgress + 0.05);
             letter.color = interpolateColor(
                 letter.startRgb,
                 letter.targetRgb,
@@ -274,12 +243,9 @@ const handleSmoothTransitions = () => {
             anyChanged = true;
         }
     });
-    if (anyChanged) {
-        drawLetters();
-        return true;
-    }
-    return false;
+    return anyChanged;
 };
+
 const updateTexture = () => {
     if (!gl.value || !texture.value || !textCanvasRef.value) return;
     const gl_ = gl.value;
@@ -293,63 +259,115 @@ const updateTexture = () => {
         textCanvasRef.value,
     );
 };
+
 const renderWebGL = () => {
     if (!gl.value || !program.value) return;
     const gl_ = gl.value;
+
     gl_.useProgram(program.value);
-    gl_.bindBuffer(gl_.ARRAY_BUFFER, positionBuffer.value);
-    gl_.enableVertexAttribArray(positionLocation.value);
-    gl_.vertexAttribPointer(positionLocation.value, 2, gl_.FLOAT, false, 0, 0);
+
+    // Передача текстуры
     gl_.uniform1i(texLocation.value, 0);
     gl_.activeTexture(gl_.TEXTURE0);
     gl_.bindTexture(gl_.TEXTURE_2D, texture.value);
+
+    // Передача силы дисторшена (fishEye)
     gl_.uniform1f(
         distortionLocation.value,
         props.fishEye ? props.fishEyeStrength : 0.0,
     );
+
+    // Настройка буфера позиций
+    gl_.bindBuffer(gl_.ARRAY_BUFFER, positionBuffer.value);
+    gl_.enableVertexAttribArray(positionLocation.value);
+    gl_.vertexAttribPointer(positionLocation.value, 2, gl_.FLOAT, false, 0, 0);
+
     gl_.clearColor(0, 0, 0, 1);
     gl_.clear(gl_.COLOR_BUFFER_BIT);
     gl_.drawArrays(gl_.TRIANGLES, 0, 6);
 };
+
+const animate = () => {
+    const now = Date.now();
+    let drewThisFrame = false;
+
+    // Обновление глитча
+    if (now - lastGlitchTime.value >= props.glitchSpeed) {
+        updateLetters();
+        drewThisFrame = true;
+        lastGlitchTime.value = now;
+    }
+
+    // Обработка плавных переходов
+    if (props.smooth && handleSmoothTransitions()) {
+        drewThisFrame = true;
+    }
+
+    // Перерисовка и обновление текстуры только при необходимости
+    if (drewThisFrame) {
+        drawLetters();
+        updateTexture();
+    }
+
+    renderWebGL();
+    animationRef.value = requestAnimationFrame(animate);
+};
+
+// --- Инициализация WebGL ---
+
 const createShader = (gl_, type, source) => {
     const shader = gl_.createShader(type);
     gl_.shaderSource(shader, source);
     gl_.compileShader(shader);
     if (!gl_.getShaderParameter(shader, gl_.COMPILE_STATUS)) {
-        console.error(gl_.getShaderInfoLog(shader));
+        console.error("Shader compile error:", gl_.getShaderInfoLog(shader));
         gl_.deleteShader(shader);
         return null;
     }
     return shader;
 };
+
 const initWebGL = () => {
     const gl_ = gl.value;
     if (!gl_) return;
+
     const vs = createShader(gl_, gl_.VERTEX_SHADER, vertexShaderSource);
     const fs = createShader(gl_, gl_.FRAGMENT_SHADER, fragmentShaderSource);
     if (!vs || !fs) return;
+
     program.value = gl_.createProgram();
     gl_.attachShader(program.value, vs);
     gl_.attachShader(program.value, fs);
     gl_.linkProgram(program.value);
+
     if (!gl_.getProgramParameter(program.value, gl_.LINK_STATUS)) {
-        console.error(gl_.getProgramInfoLog(program.value));
+        console.error(
+            "Program link error:",
+            gl_.getProgramInfoLog(program.value),
+        );
         return;
     }
+
     gl_.deleteShader(vs);
     gl_.deleteShader(fs);
+
+    // Получение местоположений
     positionLocation.value = gl_.getAttribLocation(program.value, "position");
     texLocation.value = gl_.getUniformLocation(program.value, "uTexture");
     distortionLocation.value = gl_.getUniformLocation(
         program.value,
         "uDistortion",
     );
+
+    // Создание буфера для полноэкранного квадрата (2 треугольника)
     const positions = new Float32Array([
         -1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1,
     ]);
     positionBuffer.value = gl_.createBuffer();
     gl_.bindBuffer(gl_.ARRAY_BUFFER, positionBuffer.value);
     gl_.bufferData(gl_.ARRAY_BUFFER, positions, gl_.STATIC_DRAW);
+
+    // Создание и настройка текстуры
     texture.value = gl_.createTexture();
     gl_.bindTexture(gl_.TEXTURE_2D, texture.value);
     gl_.texParameteri(gl_.TEXTURE_2D, gl_.TEXTURE_MIN_FILTER, gl_.LINEAR);
@@ -357,83 +375,46 @@ const initWebGL = () => {
     gl_.texParameteri(gl_.TEXTURE_2D, gl_.TEXTURE_WRAP_S, gl_.CLAMP_TO_EDGE);
     gl_.texParameteri(gl_.TEXTURE_2D, gl_.TEXTURE_WRAP_T, gl_.CLAMP_TO_EDGE);
 };
-const animate = () => {
-    const now = Date.now();
-    let drewThisFrame = false;
-    if (now - lastGlitchTime.value >= props.glitchSpeed) {
-        updateLetters();
-        drawLetters();
-        drewThisFrame = true;
-        lastGlitchTime.value = now;
+
+// --- Обработка размеров ---
+
+const resizeCanvas = async () => {
+    const canvas = canvasRef.value;
+    const tcanvas = textCanvasRef.value;
+    if (!canvas || !tcanvas) return;
+
+    const parent = canvas.parentElement;
+    if (!parent) return;
+
+    await nextTick();
+
+    const dpr = window.devicePixelRatio || 1;
+    const rect = parent.getBoundingClientRect();
+
+    // Размеры WebGL canvas (физические пиксели)
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+
+    // Размеры Text canvas (физические пиксели)
+    tcanvas.width = rect.width * dpr;
+    tcanvas.height = rect.height * dpr;
+    tcanvas.style.width = `${rect.width}px`;
+    tcanvas.style.height = `${rect.height}px`;
+
+    // Логические размеры для расчетов сетки
+    logicalDimensions.value = { width: rect.width, height: rect.height };
+
+    // Настройка WebGL viewport
+    if (gl.value) {
+        gl.value.viewport(0, 0, canvas.width, canvas.height);
     }
-    if (props.smooth) {
-        const smoothDrew = handleSmoothTransitions();
-        if (smoothDrew) {
-            drewThisFrame = true;
-        }
-    }
-    if (drewThisFrame) {
-        updateTexture();
-    }
-    renderWebGL();
-    animationRef.value = requestAnimationFrame(animate);
+
+    // Пересчет сетки и инициализация букв
+    const { columns, rows } = calculateGrid(rect.width, rect.height);
+    initializeLetters(columns, rows);
+    drawLetters();
 };
-// СТИЛИ
-const containerStyle = computed(() => ({
-    position: "relative",
-    width: "100%",
-    height: "100%",
-    overflow: "hidden",
-    transition: "border-radius 0.4s ease-out",
-}));
-const canvasStyle = computed(() => ({
-    display: "block",
-    width: "100%",
-    height: "100%",
-    transformOrigin: "center center",
-    transition: "filter 0.4s ease-out",
-}));
-const effectLayerStyle = computed(() => ({
-    position: "absolute",
-    top: 0,
-    left: 0,
-    width: "100%",
-    height: "100%",
-    pointerEvents: "none",
-    opacity: props.crtEffect || props.fishEye ? 1 : 0,
-    transition: "opacity 0.3s",
-}));
-const scanlinesStyle = computed(() => {
-    const { columns, rows } = grid.value;
-    const textWidth = columns * charWidth.value;
-    const textHeight = rows * charHeight;
-    return {
-        position: "absolute",
-        left: `${padding}px`,
-        top: `${padding}px`,
-        width: `${textWidth}px`,
-        height: `${textHeight}px`,
-    };
-});
-const outerVignetteStyle = computed(() => ({
-    position: "absolute",
-    top: 0,
-    left: 0,
-    width: "100%",
-    height: "100%",
-    pointerEvents: "none",
-    borderRadius: "8px",
-}));
-const centerVignetteStyle = computed(() => ({
-    position: "absolute",
-    top: 0,
-    left: 0,
-    width: "100%",
-    height: "100%",
-    pointerEvents: "none",
-    borderRadius: "8px",
-}));
-// Жизненный цикл
+
 let resizeTimeout;
 const handleResize = () => {
     clearTimeout(resizeTimeout);
@@ -442,10 +423,10 @@ const handleResize = () => {
         resizeCanvas().then(animate);
     }, 100);
 };
+
 const updateCharacters = () => {
     lettersAndSymbols.value = Array.from(props.characters);
     computeCharMetrics();
-    // Переинициализируем сетку и буквы при изменении символов
     if (logicalDimensions.value.width > 0) {
         const { columns, rows } = calculateGrid(
             logicalDimensions.value.width,
@@ -456,32 +437,60 @@ const updateCharacters = () => {
         updateTexture();
     }
 };
+
+// --- Computed Styles (Удалены неиспользуемые стили) ---
+const containerStyle = computed(() => ({
+    position: "relative",
+    width: "100%",
+    height: "100%",
+    overflow: "hidden",
+    // Удалены лишние transition
+}));
+
+const canvasStyle = computed(() => ({
+    display: "block",
+    width: "100%",
+    height: "100%",
+    transformOrigin: "center center",
+    // Удалены лишние transition и filter, т.к. эффекты реализованы в WebGL
+}));
+
+// --- Жизненный цикл ---
+
 onMounted(() => {
+    // 1. Получение контекстов
     if (canvasRef.value) {
         gl.value = canvasRef.value.getContext("webgl");
     }
     if (textCanvasRef.value) {
         textContext.value = textCanvasRef.value.getContext("2d");
-        // Вычисляем метрики после установки контекста
-        nextTick(() => {
-            computeCharMetrics();
-        });
+        nextTick(computeCharMetrics);
     }
+
+    // 2. Инициализация WebGL
     initWebGL();
+
+    // 3. Установка размера и запуск анимации
     resizeCanvas().then(animate);
+
+    // 4. Обработчик изменения размера
     window.addEventListener("resize", handleResize);
 });
+
 onBeforeUnmount(() => {
     if (animationRef.value) cancelAnimationFrame(animationRef.value);
     window.removeEventListener("resize", handleResize);
     clearTimeout(resizeTimeout);
 });
+
+// --- Watchers ---
+
+// Перезапуск анимации при изменении параметров, влияющих на рендеринг/скорость
 watch(
     () => [
         props.glitchSpeed,
         props.smooth,
         props.fishEye,
-        props.crtEffect,
         props.fishEyeStrength,
     ],
     () => {
@@ -492,11 +501,15 @@ watch(
         }
     },
 );
+
+// Обновление символов при изменении пропса `characters`
 watch(() => props.characters, updateCharacters);
 </script>
+
 <script>
 import { onMounted } from "vue";
 onMounted(() => {
+    // Проверка на существование и добавление SVG фильтров (если нужны для SCSS/других эффектов)
     if (!document.getElementById("matrix-svg-filters")) {
         const svg = document.createElementNS(
             "http://www.w3.org/2000/svg",
@@ -520,6 +533,7 @@ onMounted(() => {
                     scale="25"
                     xChannelSelector="R"
                     yChannelSelector="G"
+                    yChannelSelector="G"
                 />
             </filter>
         `;
@@ -527,6 +541,7 @@ onMounted(() => {
     }
 });
 </script>
+
 <style scoped lang="scss">
 @use "Glitch.module.scss";
 </style>

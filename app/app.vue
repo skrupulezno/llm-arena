@@ -6,6 +6,7 @@
 
 <style scoped>
 .glitch {
-    margin: -20px -60px;
+    margin: -35px -60px 0 -60px;
+    height: 90dvh;
 }
 </style>
