@@ -1,0 +1,93 @@
+canvas {
+    image-rendering: pixelated;
+}
+
+/* Слой эффектов накладывается поверх Canvas */
+.effect-layer {
+    mix-blend-mode: overlay;
+}
+//#FFD375
+/* CRT сканирующие линии (толстые черные полосы) */
+.scanlines {
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+        0deg,
+        rgba(0, 0, 0, 0.6) 0px,
+        rgba(0, 0, 0, 0.6) 2px,
+        // Черная линия 2px
+        transparent 2px,
+        transparent 4px // Прозрачный промежуток 2px
+    );
+    opacity: 0.5;
+    pointer-events: none;
+    animation: scan 8s linear infinite;
+}
+
+/* Эффект шума/зерна */
+.grain {
+    position: absolute;
+    inset: 0;
+    background: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAIAAACU3zGVAAAAJUlEQVR4nO3PAQ0AAAjAMPybhN8yGqD0/wEAAAAAAAAAAADg0n8oAABl2R2KAAAAAElFTkSuQmCC")
+        repeat;
+    background-size: 200px 200px;
+    opacity: 0.08;
+    pointer-events: none;
+    animation: grain 0.3s steps(10) infinite;
+}
+
+/* Эффект маски CRT (скругление и тени по краям) */
+.crt-mask {
+    position: absolute;
+    inset: 0;
+    box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.8);
+    border-radius: 8px;
+    pointer-events: none;
+}
+
+/* Анимация движения сканирующих линий */
+@keyframes scan {
+    0% {
+        transform: translateY(0);
+    }
+    100% {
+        transform: translateY(
+            4px
+        ); // Сдвиг на высоту одной полосы (2px черная + 2px прозрачная)
+    }
+}
+
+/* Анимация шума */
+@keyframes grain {
+    0%,
+    100% {
+        transform: translate(0, 0);
+    }
+    10% {
+        transform: translate(-1%, -1%);
+    }
+    20% {
+        transform: translate(1%, 0%);
+    }
+    30% {
+        transform: translate(0%, 1%);
+    }
+    40% {
+        transform: translate(-1%, 0%);
+    }
+    50% {
+        transform: translate(1%, -1%);
+    }
+    60% {
+        transform: translate(0%, 1%);
+    }
+    70% {
+        transform: translate(1%, 0%);
+    }
+    80% {
+        transform: translate(-1%, 1%);
+    }
+    90% {
+        transform: translate(0%, -1%);
+    }
+}
