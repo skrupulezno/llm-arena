@@ -3,7 +3,7 @@
         <canvas ref="canvasRef" :style="canvasStyle"></canvas>
         <canvas ref="textCanvasRef" style="display: none"></canvas>
         <div class="effect-layer" :style="effectLayerStyle">
-            <div class="scanlines"></div>
+            <div class="scanlines" :style="scanlinesStyle"></div>
             <div class="grain"></div>
             <div class="crt-mask"></div>
         </div>
@@ -45,7 +45,7 @@ const props = defineProps({
     },
     characters: {
         type: String,
-        default: "      lmMLArena",
+        default: "       lmMLArena",
     },
     fishEye: {
         type: Boolean,
@@ -57,7 +57,7 @@ const props = defineProps({
     },
     fishEyeStrength: {
         type: Number,
-        default: 0.3,
+        default: 0.9,
     },
 });
 const canvasRef = ref(null);
@@ -199,8 +199,7 @@ const resizeCanvas = async () => {
     const height = rect.height * dpr;
     canvas.width = width;
     canvas.height = height;
-    canvas.style.width = `${rect.width}px`;
-    canvas.style.height = `${rect.height}px`;
+
     logicalDimensions.value = { width: rect.width, height: rect.height };
     if (textCanvasRef.value) {
         const tcanvas = textCanvasRef.value;
@@ -404,6 +403,18 @@ const effectLayerStyle = computed(() => ({
     opacity: props.crtEffect || props.fishEye ? 1 : 0,
     transition: "opacity 0.3s",
 }));
+const scanlinesStyle = computed(() => {
+    const { columns, rows } = grid.value;
+    const textWidth = columns * charWidth.value;
+    const textHeight = rows * charHeight;
+    return {
+        position: "absolute",
+        left: `${padding}px`,
+        top: `${padding}px`,
+        width: `${textWidth}px`,
+        height: `${textHeight}px`,
+    };
+});
 const outerVignetteStyle = computed(() => ({
     position: "absolute",
     top: 0,
